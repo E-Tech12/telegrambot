@@ -1,0 +1,2 @@
+python telegam-bot==13.11
+python requests==2.28.2
