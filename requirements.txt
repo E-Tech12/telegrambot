@@ -1,2 +1,3 @@
-python telegam-bot==13.11
-python requests==2.28.2
+python-telegram-bot==20.3
+Flask==3.0.0
+requests

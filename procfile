@@ -1,1 +1,2 @@
-worker: python telegrambot.py
+web: python app.py
+i
